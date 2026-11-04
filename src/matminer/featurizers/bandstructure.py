@@ -82,25 +82,25 @@ class BranchPointEnergy(BaseFeaturizer):
                 [k.frac_coords for k in bs.kpoints], atol=self.atol
             )
 
+        kpt_wts = np.asarray(kpt_wts, dtype=float)
         for spin in bs.bands:
-            for kpt_idx in range(len(bs.kpoints)):
-                vb_energies = []
-                cb_energies = []
-                for band_idx in range(bs.nb_bands):
-                    e = bs.bands[spin][band_idx][kpt_idx]
-                    if e > bs.efermi:
-                        cb_energies.append(e + shift)
-                    else:
-                        vb_energies.append(e - shift)
-                vb_energies.sort(reverse=True)
-                cb_energies.sort()
-                total_sum_energies += (
-                    (sum(vb_energies[0 : self.n_vb]) / self.n_vb + sum(cb_energies[0 : self.n_cb]) / self.n_cb)
-                    * kpt_wts[kpt_idx]
-                    / 2.0
-                )
+            # energies with shape (nb_bands, n_kpoints)
+            energies = np.asarray(bs.bands[spin], dtype=float)
+            is_cb = energies > bs.efermi
 
-                num_points += kpt_wts[kpt_idx]
+            # Valence bands: highest n_vb energies <= efermi at each k-point.
+            # Missing bands (fewer than n_vb available) contribute 0, as before.
+            vb = np.sort(np.where(is_cb, -np.inf, energies - shift), axis=0)
+            vb = vb[::-1][: self.n_vb]
+            vb_sum = np.where(np.isneginf(vb), 0.0, vb).sum(axis=0)
+
+            # Conduction bands: lowest n_cb energies > efermi at each k-point.
+            cb = np.sort(np.where(is_cb, energies + shift, np.inf), axis=0)
+            cb = cb[: self.n_cb]
+            cb_sum = np.where(np.isposinf(cb), 0.0, cb).sum(axis=0)
+
+            total_sum_energies += np.sum((vb_sum / self.n_vb + cb_sum / self.n_cb) * kpt_wts / 2.0)
+            num_points += np.sum(kpt_wts)
 
         bpe = total_sum_energies / num_points
 
