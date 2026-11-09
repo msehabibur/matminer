@@ -51,6 +51,38 @@ class BandstructureFeaturesTest(PymatgenTest):
         self.assertAlmostEqual(df_bpe["cbm_absolute"][0], 6.224, 3)
         self.assertAlmostEqual(df_bpe["vbm_absolute"][0], 5.614, 3)
 
+    def test_BranchPointEnergy_matches_reference_loop(self):
+        # The vectorized implementation must give the same result as the
+        # original per-k-point / per-band loop (issue: BPE featurizer slow).
+        def reference_bpe(bs, n_vb, n_cb, shift, kpt_wts):
+            total, num = 0.0, 0.0
+            for spin in bs.bands:
+                for k in range(len(bs.kpoints)):
+                    vbs, cbs = [], []
+                    for b in range(bs.nb_bands):
+                        e = bs.bands[spin][b][k]
+                        if e > bs.efermi:
+                            cbs.append(e + shift)
+                        else:
+                            vbs.append(e - shift)
+                    vbs.sort(reverse=True)
+                    cbs.sort()
+                    total += (sum(vbs[:n_vb]) / n_vb + sum(cbs[:n_cb]) / n_cb) * kpt_wts[k] / 2.0
+                    num += kpt_wts[k]
+            return total / num
+
+        bs = self.df["bs_uniform"][0]
+        weights = [1.0 + 0.1 * (i % 3) for i in range(len(bs.kpoints))]
+        vbm = bs.get_vbm()["energy"]
+        cbm = bs.get_cbm()["energy"]
+        for n_vb, n_cb in [(1, 1), (2, 3), (4, 2), (bs.nb_bands + 5, bs.nb_bands + 5)]:
+            for target_gap in [None, 1.2]:
+                shift = (target_gap - (cbm - vbm)) / 2.0 if target_gap else 0.0
+                bpe = BranchPointEnergy(n_vb=n_vb, n_cb=n_cb, calculate_band_edges=False)
+                result = bpe.featurize(bs, target_gap=target_gap, weights=weights)
+                expected = reference_bpe(bs, n_vb, n_cb, shift, weights)
+                self.assertAlmostEqual(result[0], expected, 10)
+
     def test_BandFeaturizer(self):
         # silicon:
         bs_featurizer = BandFeaturizer(kpoints=self.si_kpts, nbands=5)
