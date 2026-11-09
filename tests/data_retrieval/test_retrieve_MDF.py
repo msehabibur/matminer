@@ -36,6 +36,8 @@ class MDFDataRetrievalTest(unittest.TestCase):
             self.assertTrue("Si" in elts)
             self.assertTrue("V" in elts)
 
+
+class MakeDataframeTest(unittest.TestCase):
     def test_make_dataframe(self):
         raw = [
             {
